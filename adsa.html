@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Smart Sorting Dashboard - Traceability, QC & Export</title>
+    
+    <!-- Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+
+    <!-- Teachable Machine & TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+    <style>
+        :root { --theme: #2563eb; }
+        * { transition: background-color 0.3s, border-color 0.3s, color 0.3s; font-family: 'Inter', sans-serif; }
+        body { background: #F7F9FB; overflow: hidden; }
+        
+        .sidebar-btn.active { background: #f3f4f6; border-right: 4px solid var(--theme); color: var(--theme); }
+        .page { display: none; animation: fadeIn 0.4s ease; height: calc(100vh - 80px); overflow-y: auto; }
+        .page.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Dark Mode */
+        body.dark { background: #0f172a; color: #f8fafc; }
+        .dark aside, .dark header, .dark .bg-white { background: #1e293b !important; border-color: #334155 !important; }
+        .dark input, .dark select { background: #334155 !important; border-color: #475569 !important; color: #fff; }
+        .dark .sidebar-btn.active { background: #334155; }
+        .dark #dev-card { background: #0f172a !important; border: 1px solid #334155 !important; }
+        .dark table th { background: #334155; color: #cbd5e1; border-color: #475569; }
+        .dark table td { border-color: #334155; }
+
+        #webcam-container canvas { width: 100% !important; height: auto !important; border-radius: 1rem; }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .dark ::-webkit-scrollbar-thumb { background: #475569; }
+        
+        #toast { position: fixed; bottom: 20px; right: 20px; transform: translateY(150%); transition: 0.5s cubic-bezier(0.4, 0, 0.2, 1); z-index: 1000; }
+        
+        /* Table Sticky Header */
+        .table-container { max-height: 250px; overflow-y: auto; }
+        th { position: sticky; top: 0; background: white; z-index: 10; }
+        .status-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 700; }
+    </style>
+</head>
+<body class="flex h-screen">
+
+    <!-- SIDEBAR -->
+    <aside class="w-64 bg-white border-r flex flex-col p-6 z-50 shrink-0">
+        <div class="flex items-center gap-3 mb-10">
+            <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg">
+                <i class="fas fa-microchip text-xl"></i>
+            </div>
+            <span class="font-extrabold text-xl tracking-tight">Sort<span class="text-blue-600">.AI</span></span>
+        </div>
+        <nav class="flex-1 space-y-2">
+            <button onclick="window.showPage('dash')" id="nav-dash" class="sidebar-btn active w-full flex items-center gap-3 p-3 rounded-xl text-gray-500 font-medium text-sm">
+                <i class="fas fa-chart-line"></i> Main Dashboard
+            </button>
+            <button onclick="window.showPage('help')" id="nav-help" class="sidebar-btn w-full flex items-center gap-3 p-3 rounded-xl text-gray-500 font-medium text-sm">
+                <i class="fas fa-sitemap"></i> System Architecture
+            </button>
+        </nav>
+
+        <div id="dev-card" class="mt-auto bg-[#1e293b] p-5 rounded-2xl shadow-xl border border-gray-700">
+            <p class="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-1">Developer / Educator</p>
+            <p class="text-xs font-bold text-white mb-2">Rahmat Fadlan</p>
+            <div class="space-y-1.5">
+                <p class="flex items-center gap-1.5 text-gray-400 text-[10px] font-bold">
+                    <i class="fas fa-robot text-xs text-blue-400"></i> Robotics & STEM
+                </p>
+                <button onclick="window.toggleDark()" class="mt-2 w-full bg-slate-700 hover:bg-slate-600 text-white text-[10px] py-1.5 rounded-lg font-bold transition-colors">
+                    <i class="fas fa-moon"></i> Toggle Theme
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 flex flex-col relative overflow-hidden">
+        <!-- HEADER -->
+        <header class="h-20 bg-white border-b px-8 flex items-center justify-between shrink-0 shadow-sm z-20">
+            <div class="flex items-center gap-4 w-full justify-between">
+                
+                <!-- System Status Bar -->
+                <div class="flex items-center gap-2 bg-gray-50 dark:bg-slate-900 px-4 py-2 rounded-xl border dark:border-slate-700">
+                    <span class="text-[10px] font-bold text-gray-400 mr-2">SYSTEM STATUS</span>
+                    <div id="led-fb" class="w-3 h-3 rounded-full bg-red-500 shadow-sm" title="Firebase"></div>
+                    <div id="led-bt" class="w-3 h-3 rounded-full bg-red-500 shadow-sm" title="Bluetooth"></div>
+                    <div id="led-ai" class="w-3 h-3 rounded-full bg-gray-300 shadow-sm" title="AI Vision"></div>
+                    <div id="led-sensor" class="w-3 h-3 rounded-full bg-gray-300 shadow-sm" title="Feedback Sensors"></div>
+                </div>
+
+                <!-- Mode Toggle -->
+                <div class="flex items-center bg-gray-100 dark:bg-slate-800 p-1 rounded-xl border dark:border-slate-700">
+                    <button id="btn-mode-robotic" onclick="window.setMode('ROBOTIC_RECOVERY')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-white shadow-sm dark:bg-slate-600 text-blue-600 dark:text-blue-400">
+                        🤖 Robotic Recovery
+                    </button>
+                    <button id="btn-mode-servo" onclick="window.setMode('SERVO_SORTING')" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                        ⚙️ Servo Sorting
+                    </button>
+                </div>
+
+                <!-- Connections -->
+                <div class="flex items-center gap-3">
+                    <div class="flex flex-col gap-1 w-64">
+                        <div class="flex gap-1">
+                            <input type="password" id="fb-key" placeholder="API Key" class="text-[10px] p-2 bg-gray-50 border rounded-lg w-1/2">
+                            <input type="text" id="fb-url" placeholder="DB URL" class="text-[10px] p-2 bg-gray-50 border rounded-lg w-1/2">
+                        </div>
+                    </div>
+                    <button id="btn-conn-fb" class="bg-black dark:bg-slate-700 text-white px-4 py-2 rounded-lg text-[10px] font-bold shadow-md hover:opacity-90">SYNC FB</button>
+                    
+                    <div class="h-8 w-px bg-gray-300 dark:bg-slate-700 mx-1"></div>
+
+                    <button id="btn-conn-bt" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold shadow-md flex items-center gap-2 hover:bg-blue-700">
+                        <i class="fab fa-bluetooth-b"></i> CONNECT HW
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="flex-1 flex overflow-hidden">
+            <div class="flex-1 overflow-y-auto p-6 lg:p-8 relative">
+                
+                <!-- PAGE 1: DASHBOARD -->
+                <section id="page-dash" class="page active space-y-6">
+                    <div class="flex justify-between items-end">
+                        <div>
+                            <h1 class="text-2xl font-black">Data Traceability Dashboard</h1>
+                            <p class="text-gray-400 text-sm mt-1">Every object processed becomes trackable performance data.</p>
+                        </div>
+                        <div class="text-right">
+                            <p id="live-clock" class="text-xl font-bold font-mono">00:00:00</p>
+                        </div>
+                    </div>
+
+                    <!-- TOP KPI CARDS -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="bg-white dark:bg-slate-800 p-5 rounded-3xl border dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Processed</p>
+                            <p id="kpi-total" class="text-4xl font-black text-blue-600 mt-2">0</p>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 p-5 rounded-3xl border dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Sorting Success Rate</p>
+                            <p id="kpi-success-rate" class="text-4xl font-black text-green-500 mt-2">0%</p>
+                            <p class="text-[10px] text-gray-400 font-medium mt-1"><span id="kpi-miss">0</span> miss-sorts detected</p>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 p-5 rounded-3xl border dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Objects Recovered (Reject)</p>
+                            <p id="kpi-recovered" class="text-4xl font-black text-orange-500 mt-2">0</p>
+                            <p class="text-[10px] text-gray-400 font-medium mt-1">Handled by Robotic Arm</p>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 p-5 rounded-3xl border dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Active Mode Perf.</p>
+                            <div class="mt-2 flex items-baseline gap-2">
+                                <p id="kpi-mode-rate" class="text-4xl font-black text-purple-600">0%</p>
+                                <p id="kpi-mode-label" class="text-xs font-bold text-gray-400">Robotic</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MIDDLE SECTION -->
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        
+                        <!-- AI VISION -->
+                        <div class="bg-white dark:bg-slate-800 p-5 rounded-3xl border dark:border-slate-700 shadow-sm flex flex-col">
+                            <h3 class="font-extrabold text-sm mb-3 flex items-center gap-2">
+                                <i class="fas fa-camera text-blue-500"></i> AI Vision Module
+                            </h3>
+                            <input type="text" id="tm-url-input" placeholder="Teachable Machine URL..." class="text-xs p-2.5 bg-gray-50 border rounded-xl w-full dark:bg-slate-700 dark:border-slate-600 dark:text-white mb-3">
+                            <button id="btn-start-tm" onclick="window.initTM()" class="w-full bg-black dark:bg-slate-700 text-white py-2.5 rounded-xl text-xs font-bold shadow-sm mb-4 hover:opacity-90 transition-all">START VISION</button>
+                            
+                            <div id="webcam-container" class="w-full bg-slate-100 dark:bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center min-h-[180px] border dark:border-slate-700 mb-3 relative">
+                                <span class="text-xs font-bold text-gray-400 text-center px-4 absolute">Camera Offline</span>
+                            </div>
+                            <div id="label-container" class="space-y-1.5 flex-1"></div>
+                        </div>
+
+                        <!-- PERFORMANCE COMPARISON -->
+                        <div class="bg-white dark:bg-slate-800 p-5 rounded-3xl border dark:border-slate-700 shadow-sm lg:col-span-2 flex flex-col">
+                            <h3 class="font-extrabold text-sm mb-4 flex items-center gap-2">
+                                <i class="fas fa-chart-bar text-purple-500"></i> Performance Breakdown
+                            </h3>
+                            
+                            <div class="grid grid-cols-2 gap-6 mb-6">
+                                <div class="p-4 rounded-2xl bg-blue-50 dark:bg-slate-900/50 border border-blue-100 dark:border-slate-700">
+                                    <p class="text-xs font-bold text-blue-600 dark:text-blue-400 mb-1">🤖 Robotic Recovery</p>
+                                    <div class="flex justify-between items-end mt-3">
+                                        <div>
+                                            <p class="text-[10px] text-gray-500 uppercase">Handled</p>
+                                            <p id="stat-robo-total" class="font-black text-xl">0</p>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="text-[10px] text-gray-500 uppercase">Success</p>
+                                            <p id="stat-robo-rate" class="font-black text-xl text-green-500">0%</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="p-4 rounded-2xl bg-gray-50 dark:bg-slate-900/50 border border-gray-100 dark:border-slate-700">
+                                    <p class="text-xs font-bold text-gray-600 dark:text-gray-400 mb-1">⚙️ Servo Sorting</p>
+                                    <div class="flex justify-between items-end mt-3">
+                                        <div>
+                                            <p class="text-[10px] text-gray-500 uppercase">Sorted</p>
+                                            <p id="stat-servo-total" class="font-black text-xl">0</p>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="text-[10px] text-gray-500 uppercase">Success</p>
+                                            <p id="stat-servo-rate" class="font-black text-xl text-green-500">0%</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="flex-1 min-h-[150px] relative">
+                                <canvas id="distributionChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- BOTTOM SECTION: TRANSACTION HISTORY -->
+                    <div class="bg-white dark:bg-slate-800 rounded-3xl border dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
+                        <div class="p-5 border-b dark:border-slate-700 flex justify-between items-center bg-gray-50 dark:bg-slate-800/50">
+                            <h3 class="font-extrabold text-sm flex items-center gap-2">
+                                <i class="fas fa-list-ul text-green-500"></i> Closed-Loop Transaction History
+                            </h3>
+                            <div class="flex items-center gap-2">
+                                <!-- Tombol Export CSV Baru -->
+                                <button onclick="window.exportToCSV()" class="text-[10px] font-bold text-green-600 hover:text-green-700 bg-green-50 dark:bg-green-900/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 border border-green-200 dark:border-green-800/50">
+                                    <i class="fas fa-file-excel"></i> Export CSV
+                                </button>
+                                <button onclick="window.clearTransactions()" class="text-[10px] font-bold text-red-500 hover:text-red-700 bg-red-50 dark:bg-red-900/20 px-3 py-1.5 rounded-lg transition-colors">
+                                    Reset Database
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-container p-0">
+                            <table class="w-full text-left text-xs border-collapse">
+                                <thead>
+                                    <tr class="text-gray-500 dark:text-gray-400 bg-white dark:bg-slate-800 border-b dark:border-slate-700">
+                                        <th class="py-3 px-5 font-bold">Object ID</th>
+                                        <th class="py-3 px-5 font-bold">Time</th>
+                                        <th class="py-3 px-5 font-bold">AI Class (Conf.)</th>
+                                        <th class="py-3 px-5 font-bold">Mode</th>
+                                        <th class="py-3 px-5 font-bold">Destination</th>
+                                        <th class="py-3 px-5 font-bold">Hardware Result</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tx-table-body" class="divide-y divide-gray-100 dark:divide-slate-700/50">
+                                    <!-- Populated via Firebase -->
+                                    <tr>
+                                        <td colspan="6" class="py-6 text-center text-gray-400 font-medium italic">Awaiting AI/Hardware input...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- PAGE 2: HELP (SYSTEM ARCHITECTURE) -->
+                <section id="page-help" class="page">
+                    <div class="flex justify-between items-end mb-6">
+                        <div>
+                            <h2 class="text-2xl font-black">System Architecture & Mechanics</h2>
+                            <p class="text-gray-400 text-sm mt-1">Technical documentation of the data pipeline and hardware mechanics.</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white dark:bg-slate-800 p-8 rounded-3xl border dark:border-slate-700 shadow-sm flex flex-col gap-8">
+                        
+                        <!-- SECTION 1: DATA PIPELINE -->
+                        <div>
+                            <h3 class="text-base font-extrabold text-blue-600 dark:text-blue-400 border-b dark:border-slate-700 pb-2 mb-4 flex items-center gap-2">
+                                <i class="fas fa-project-diagram"></i> 1. Closed-Loop Data Pipeline
+                            </h3>
+                            <ol class="space-y-3 text-sm text-gray-600 dark:text-gray-300 list-decimal list-inside ml-2">
+                                <li><strong>Vision:</strong> Teachable Machine mendeteksi kelas objek (Yellow/Black/Red) melalui <i>webcam</i>.</li>
+                                <li><strong>Database Entry:</strong> Website mengirim <i>record</i> baru ke Firebase <code>/transactions</code> dengan status <span class="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold text-xs">Pending</span>.</li>
+                                <li><strong>Command TX:</strong> Website mengirim <i>string</i> perintah (misal: <code>YELLOW_ROBOTIC</code>) melalui Web Bluetooth UART ke Mikrokontroler.</li>
+                                <li><strong>Execution:</strong> Mikrokontroler memproses perintah, menjalankan motor <i>conveyor</i>, dan menggerakkan aktuator lengan/servo ke koordinat yang ditentukan.</li>
+                                <li><strong>Validation:</strong> Sensor IR / HC-SR04 di dalam <i>destination bin</i> terpicu saat objek jatuh melewatinya.</li>
+                                <li><strong>Feedback RX:</strong> Mikrokontroler mengirim <i>string feedback</i> (misal: <code>IN_YELLOW</code>) via Bluetooth kembali ke website.</li>
+                                <li><strong>QC Update:</strong> Website mencocokkan transaksi <code>Pending</code> dan memperbaruinya menjadi <span class="bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold text-xs">Success</span> atau <span class="bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold text-xs">Miss-sort</span>.</li>
+                            </ol>
+                        </div>
+
+                        <!-- SECTION 2: ROBOT MECHANICS -->
+                        <div>
+                            <h3 class="text-base font-extrabold text-purple-600 dark:text-purple-400 border-b dark:border-slate-700 pb-2 mb-4 flex items-center gap-2">
+                                <i class="fas fa-cogs"></i> 2. How the Robot Works (Mekanisme Kerja)
+                            </h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-5 ml-2">
+                                Sistem perangkat keras bertindak sebagai eksekutor fisik yang menerjemahkan sinyal digital menjadi pergerakan mekanis melalui dua mekanisme <i>sorting</i> yang diatur oleh mikrokontroler pusat:
+                            </p>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-5 ml-2">
+                                <!-- Mode 1: Servo -->
+                                <div class="bg-gray-50 dark:bg-slate-900/50 p-5 rounded-2xl border border-gray-100 dark:border-slate-700">
+                                    <h4 class="font-bold text-sm mb-3 flex items-center gap-2">
+                                        <i class="fas fa-random text-gray-500"></i> Mode 1: Servo Sorting
+                                    </h4>
+                                    <p class="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                                        Mekanisme ini dirancang untuk <strong>high-throughput sorting</strong> (pemilahan berkecepatan tinggi). Saat objek berjalan di atas konveyor, motor servo bertindak sebagai <i>sorter gate</i> (gerbang pemilah). Servo akan memutar lengannya secara instan pada sudut tertentu untuk membelokkan material agar meluncur masuk ke <i>bin</i> Kuning atau Hitam secara akurat tanpa menghentikan laju konveyor.
+                                    </p>
+                                </div>
+
+                                <!-- Mode 2: Robotic Arm -->
+                                <div class="bg-blue-50 dark:bg-blue-900/10 p-5 rounded-2xl border border-blue-100 dark:border-blue-900/30">
+                                    <h4 class="font-bold text-sm mb-3 flex items-center gap-2">
+                                        <i class="fas fa-robot text-blue-500"></i> Mode 2: Robotic Recovery
+                                    </h4>
+                                    <p class="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                                        Mekanisme ini dirancang untuk <strong>precision handling</strong>, khususnya untuk material <i>Reject/Red</i>. Konveyor akan berhenti saat objek mencapai area pengambilan. Lengan robot multi-axis (digerakkan oleh servo <i>high-torque</i> seperti MG996R) akan bergerak menggunakan kalkulasi <i>inverse kinematics</i> dan interpolasi linear untuk memastikan transisi pergerakan yang halus (<i>smooth motion</i>) saat memindahkan objek ke <i>recovery bin</i>.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Hardware Integration Notes -->
+                            <div class="mt-5 ml-2 bg-slate-50 dark:bg-slate-700/30 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
+                                <h4 class="font-bold text-xs mb-3 uppercase tracking-wider text-slate-500 dark:text-slate-400">Integrasi Hardware Utama</h4>
+                                <ul class="text-xs space-y-2.5 text-gray-600 dark:text-gray-300">
+                                    <li class="flex items-start gap-2">
+                                        <i class="fas fa-microchip mt-0.5 text-blue-400"></i>
+                                        <span><strong>Microcontroller & UART:</strong> Berfungsi sebagai otak logika lokal yang mengontrol motor <i>driver</i> (misal: Cytron/BTS7960) dan menerima instruksi serial dari Web API.</span>
+                                    </li>
+                                    <li class="flex items-start gap-2">
+                                        <i class="fas fa-truck-loading mt-0.5 text-blue-400"></i>
+                                        <span><strong>Conveyor Drive:</strong> Digerakkan oleh motor DC <i>gearbox</i> (seperti JGA25-370) untuk menjaga torsi dan kecepatan lintasan agar klasifikasi AI sinkron dengan waktu tiba material.</span>
+                                    </li>
+                                    <li class="flex items-start gap-2">
+                                        <i class="fas fa-broadcast-tower mt-0.5 text-blue-400"></i>
+                                        <span><strong>Sensory Feedback:</strong> Array fotodiode atau sensor ultrasonik mengawasi setiap lubang penyimpanan, mendeteksi perubahan fisik instan untuk memicu balasan ke <i>dashboard</i>.</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <div id="toast" class="bg-slate-900 text-white px-5 py-3 rounded-2xl text-xs font-bold shadow-2xl flex items-center gap-3 border border-slate-700">
+        <i id="toast-icon" class="fas fa-info-circle text-blue-400 text-sm"></i> 
+        <span id="toast-msg">System Initialized</span>
+    </div>
+
+    <script type="module">
+        import { initializeApp, getApps, deleteApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+        import { getDatabase, ref, onValue, set, push, remove, update } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+
+        // Bluetooth UUIDs
+        const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+        const UART_TX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+        const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+        // Global State
+        const state = {
+            db: null, currentPath: "smart_factory/sorting_line",
+            device: null, txChar: null, rxChar: null, bleConnected: false,
+            currentMode: "ROBOTIC_RECOVERY", // Default Mode
+            isCoolingDown: false, chart: null,
+            
+            // Temporary memory for closed-loop validation
+            pendingTxKey: null,
+            pendingDest: null,
+            transactions: [], // Menyimpan data array transaksi untuk fitur Export CSV
+            
+            // Analytics calculated on the fly
+            stats: { 
+                total: 0, success: 0, miss: 0, recovered: 0,
+                robo_handled: 0, robo_success: 0,
+                servo_handled: 0, servo_success: 0,
+                dist: { yellow: 0, black: 0, red: 0 }
+            }
+        };
+
+        const $ = (id) => document.getElementById(id);
+
+        // UI Utils
+        window.showPage = (id) => {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
+            $('page-'+id).classList.add('active');
+            $('nav-'+id).classList.add('active');
+        };
+
+        window.toggleDark = () => {
+            document.body.classList.toggle('dark');
+            localStorage.setItem('iot_dark', document.body.classList.contains('dark'));
+            updateChartConfig();
+        };
+
+        function showToast(msg, type='info') {
+            const t = $('toast'); $('toast-msg').innerText = msg;
+            const icon = $('toast-icon');
+            icon.className = type === 'error' ? 'fas fa-exclamation-triangle text-red-500 text-sm' : 
+                             (type === 'success' ? 'fas fa-check-circle text-green-500 text-sm' : 'fas fa-info-circle text-blue-400 text-sm');
+            t.style.transform = "translateY(0)";
+            setTimeout(() => t.style.transform = "translateY(150%)", 3000);
+        }
+
+        function updateLED(id, isActive, isError = false) {
+            const el = $(id);
+            if(isError) el.className = "w-3 h-3 rounded-full bg-red-500 shadow-sm animate-pulse";
+            else if(isActive) el.className = "w-3 h-3 rounded-full bg-green-500 shadow-sm";
+            else el.className = "w-3 h-3 rounded-full bg-gray-300 dark:bg-slate-700 shadow-sm";
+        }
+
+        setInterval(() => $('live-clock').innerText = new Date().toLocaleTimeString('id-ID'), 1000);
+
+        // --- MODE TOGGLE ---
+        window.setMode = (mode) => {
+            state.currentMode = mode;
+            const btnRobo = $('btn-mode-robotic');
+            const btnServo = $('btn-mode-servo');
+            
+            if (mode === 'ROBOTIC_RECOVERY') {
+                btnRobo.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-white shadow-sm dark:bg-slate-600 text-blue-600 dark:text-blue-400";
+                btnServo.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-700 dark:hover:text-gray-300";
+                $('kpi-mode-label').innerText = "Robotic";
+            } else {
+                btnServo.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-white shadow-sm dark:bg-slate-600 text-blue-600 dark:text-blue-400";
+                btnRobo.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-gray-500 hover:text-gray-700 dark:hover:text-gray-300";
+                $('kpi-mode-label').innerText = "Servo";
+            }
+            calculateStats();
+        };
+
+        // --- BLUETOOTH FEEDBACK LOOP ---
+        $('btn-conn-bt').onclick = async () => {
+            try {
+                if (!navigator.bluetooth) throw new Error("Web Bluetooth tidak didukung browser ini.");
+                
+                state.device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: "BBC micro:bit" }],
+                    optionalServices: [UART_SERVICE_UUID]
+                });
+                
+                state.device.addEventListener("gattserverdisconnected", () => {
+                    state.bleConnected = false; updateLED('led-bt', false, true); 
+                    showToast("Hardware terputus!", "error");
+                });
+
+                const server = await state.device.gatt.connect();
+                const service = await server.getPrimaryService(UART_SERVICE_UUID);
+                state.txChar = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
+                state.rxChar = await service.getCharacteristic(UART_RX_CHARACTERISTIC_UUID);
+                
+                await state.rxChar.startNotifications();
+                state.rxChar.addEventListener('characteristicvaluechanged', handleSensorFeedback);
+                
+                state.bleConnected = true; 
+                updateLED('led-bt', true);
+                $('btn-conn-bt').innerHTML = '<i class="fab fa-bluetooth-b"></i> CONNECTED';
+                $('btn-conn-bt').classList.add('bg-green-600');
+                showToast("Hardware Connected & RX Active", "success");
+            } catch (e) { showToast(e.message, "error"); }
+        };
+
+        async function sendToMicrobit(cmdStr) {
+            if (!state.txChar) return;
+            try {
+                await state.txChar.writeValue(new TextEncoder().encode(cmdStr + "\n"));
+                updateLED('led-sensor', false, true);
+            } catch(e) { console.error("TX Error:", e); }
+        }
+
+        // The QC Feedback Logic
+        async function handleSensorFeedback(event) {
+            const receivedData = new TextDecoder().decode(event.target.value).trim();
+            updateLED('led-sensor', true);
+            
+            if (!state.db || !state.pendingTxKey) return;
+
+            let isSuccess = false;
+            if (receivedData === 'IN_YELLOW' && state.pendingDest === 'Yellow Bin') isSuccess = true;
+            if (receivedData === 'IN_BLACK' && state.pendingDest === 'Black Bin') isSuccess = true;
+            if (receivedData === 'IN_REJECT' && state.pendingDest === 'Reject Bin') isSuccess = true;
+
+            try {
+                await update(ref(state.db, `${state.currentPath}/transactions/${state.pendingTxKey}`), {
+                    result: isSuccess ? "Success" : "Miss-sort"
+                });
+                state.pendingTxKey = null;
+                state.pendingDest = null;
+                setTimeout(() => updateLED('led-sensor', false), 2000);
+            } catch (e) { console.error("Update Feedback Error:", e); }
+        }
+
+
+        // --- TEACHABLE MACHINE ---
+        let model, webcam, labelContainer, maxPredictions;
+
+        window.initTM = async () => {
+            let url = $('tm-url-input').value.trim();
+            if (!url) return showToast("Masukkan URL Teachable Machine", "error");
+            if (!url.endsWith('/')) url += '/';
+            localStorage.setItem('tm_model_url', url);
+
+            const btn = $('btn-start-tm');
+            btn.disabled = true; btn.innerText = "LOADING MODEL...";
+
+            try {
+                model = await tmImage.load(url + "model.json", url + "metadata.json");
+                maxPredictions = model.getTotalClasses();
+
+                webcam = new tmImage.Webcam(300, 300, true);
+                await webcam.setup(); await webcam.play();
+                window.requestAnimationFrame(tmLoop);
+
+                $('webcam-container').innerHTML = '';
+                $('webcam-container').appendChild(webcam.canvas);
+                
+                labelContainer = $('label-container');
+                labelContainer.innerHTML = '';
+                for (let i = 0; i < maxPredictions; i++) {
+                    const div = document.createElement("div");
+                    div.className = "flex items-center justify-between text-[11px] p-2 bg-gray-50 dark:bg-slate-700 rounded-lg font-bold border border-transparent";
+                    labelContainer.appendChild(div);
+                }
+
+                btn.style.display = "none";
+                updateLED('led-ai', true);
+                showToast("AI Vision Online", "success");
+            } catch(e) {
+                btn.disabled = false; btn.innerText = "START VISION";
+                showToast("Gagal memuat model AI", "error");
+            }
+        };
+
+        async function tmLoop() {
+            webcam.update();
+            await tmPredict();
+            window.requestAnimationFrame(tmLoop);
+        }
+
+        async function tmPredict() {
+            const prediction = await model.predict(webcam.canvas);
+            let highestProb = 0; let detectedClass = "";
+            
+            for (let i = 0; i < maxPredictions; i++) {
+                const className = prediction[i].className;
+                const probability = prediction[i].probability;
+                const probText = (probability * 100).toFixed(0);
+                
+                labelContainer.childNodes[i].innerHTML = `<span>${className}</span><span class="text-blue-500">${probText}%</span>`;
+                
+                if (probability > highestProb) {
+                    highestProb = probability;
+                    detectedClass = className.toLowerCase();
+                }
+            }
+
+            if (highestProb > 0.88 && !state.isCoolingDown) {
+                if (detectedClass.includes('yellow') || detectedClass.includes('kuning')) {
+                    triggerSortAction('yellow', (highestProb*100).toFixed(1));
+                } else if (detectedClass.includes('black') || detectedClass.includes('hitam')) {
+                    triggerSortAction('black', (highestProb*100).toFixed(1));
+                } else if (detectedClass.includes('red') || detectedClass.includes('merah')) {
+                    triggerSortAction('red', (highestProb*100).toFixed(1));
+                }
+            }
+        }
+
+        // --- DATABASE RECORDING (TRANSACTION) ---
+        async function triggerSortAction(category, confidenceVal) {
+            state.isCoolingDown = true;
+            
+            const timeStr = new Date().toLocaleTimeString('id-ID', {hour12: false});
+            const objId = `OBJ-${String(state.stats.total + 1).padStart(3, '0')}`;
+            
+            let dest = "Unknown Bin";
+            if (category === 'yellow') dest = "Yellow Bin";
+            if (category === 'black') dest = "Black Bin";
+            if (category === 'red') dest = "Reject Bin";
+
+            if (state.db) {
+                try {
+                    const record = {
+                        id: objId, timestamp: Date.now(), time_str: timeStr,
+                        ai_class: category.toUpperCase(), confidence: parseFloat(confidenceVal),
+                        sorting_mode: state.currentMode, destination: dest, result: "Pending"
+                    };
+                    const newRef = push(ref(state.db, `${state.currentPath}/transactions`));
+                    state.pendingTxKey = newRef.key;
+                    state.pendingDest = dest;
+                    await set(newRef, record);
+                } catch(e) { console.error("DB Push Error:", e); }
+            }
+
+            const cmdMode = state.currentMode === 'ROBOTIC_RECOVERY' ? 'ROBO' : 'SRV';
+            sendToMicrobit(`${category.toUpperCase()}_${cmdMode}`);
+            
+            $('webcam-container').style.border = "4px solid #3b82f6";
+            setTimeout(() => {
+                $('webcam-container').style.border = "1px solid #334155";
+                state.isCoolingDown = false;
+            }, 3000);
+        }
+
+
+        // --- FIREBASE SYNC & ANALYTICS ---
+        $('btn-conn-fb').onclick = async () => {
+            const key = $('fb-key').value.trim();
+            const url = $('fb-url').value.trim();
+            if(!key || !url) return showToast("Lengkapi form Firebase", "error");
+            
+            try {
+                const config = { apiKey: key, databaseURL: url, projectId: url.split('//')[1]?.split('.')[0] };
+                const apps = getApps();
+                if (apps.length > 0) await deleteApp(apps[0]);
+                
+                const app = initializeApp(config);
+                state.db = getDatabase(app);
+                
+                onValue(ref(state.db, `${state.currentPath}/transactions`), (snapshot) => {
+                    const data = snapshot.val();
+                    processTransactions(data);
+                });
+
+                localStorage.setItem('fb_cfg', JSON.stringify({key, url}));
+                updateLED('led-fb', true);
+                showToast("Database Synced", "success");
+            } catch(e) { showToast(e.message, "error"); }
+        };
+
+        function processTransactions(data) {
+            const tbody = $('tx-table-body');
+            tbody.innerHTML = '';
+            
+            state.stats = { total:0, success:0, miss:0, recovered:0, robo_handled:0, robo_success:0, servo_handled:0, servo_success:0, dist:{yellow:0, black:0, red:0} };
+
+            if (!data) {
+                state.transactions = [];
+                tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-gray-400">No data available.</td></tr>';
+                calculateStats();
+                return;
+            }
+
+            const txArray = Object.values(data).sort((a,b) => b.timestamp - a.timestamp);
+            state.transactions = txArray; // Simpan ke state untuk export CSV
+            
+            txArray.forEach(tx => {
+                state.stats.total++;
+                if (tx.result === 'Success') state.stats.success++;
+                if (tx.result === 'Miss-sort') state.stats.miss++;
+                
+                if (tx.sorting_mode === 'ROBOTIC_RECOVERY') {
+                    state.stats.robo_handled++;
+                    if(tx.result === 'Success') state.stats.robo_success++;
+                } else {
+                    state.stats.servo_handled++;
+                    if(tx.result === 'Success') state.stats.servo_success++;
+                }
+
+                if (tx.ai_class === 'YELLOW') state.stats.dist.yellow++;
+                if (tx.ai_class === 'BLACK') state.stats.dist.black++;
+                if (tx.ai_class === 'RED') {
+                    state.stats.dist.red++;
+                    if(tx.result === 'Success') state.stats.recovered++;
+                }
+            });
+
+            txArray.slice(0, 50).forEach(tx => {
+                let badgeColor = tx.result === 'Success' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 
+                                 (tx.result === 'Pending' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 animate-pulse' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400');
+                
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors";
+                tr.innerHTML = `
+                    <td class="py-2.5 px-5 font-mono text-[10px] text-gray-500">${tx.id}</td>
+                    <td class="py-2.5 px-5 font-bold">${tx.time_str}</td>
+                    <td class="py-2.5 px-5">${tx.ai_class} <span class="text-[9px] text-gray-400 font-mono">(${tx.confidence}%)</span></td>
+                    <td class="py-2.5 px-5 text-[10px] font-bold text-gray-500">${tx.sorting_mode === 'ROBOTIC_RECOVERY' ? '🤖 ROBOTIC' : '⚙️ SERVO'}</td>
+                    <td class="py-2.5 px-5">${tx.destination}</td>
+                    <td class="py-2.5 px-5"><span class="status-badge ${badgeColor}">${tx.result}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            calculateStats();
+        }
+
+        function calculateStats() {
+            const s = state.stats;
+            const overallRate = s.total > 0 ? ((s.success / s.total) * 100).toFixed(1) : 0;
+            const roboRate = s.robo_handled > 0 ? ((s.robo_success / s.robo_handled) * 100).toFixed(1) : 0;
+            const servoRate = s.servo_handled > 0 ? ((s.servo_success / s.servo_handled) * 100).toFixed(1) : 0;
+
+            $('kpi-total').innerText = s.total;
+            $('kpi-success-rate').innerText = `${overallRate}%`;
+            $('kpi-miss').innerText = s.miss;
+            $('kpi-recovered').innerText = s.recovered;
+
+            $('stat-robo-total').innerText = s.robo_handled;
+            $('stat-robo-rate').innerText = `${roboRate}%`;
+            $('stat-servo-total').innerText = s.servo_handled;
+            $('stat-servo-rate').innerText = `${servoRate}%`;
+
+            if (state.currentMode === 'ROBOTIC_RECOVERY') {
+                $('kpi-mode-rate').innerText = `${roboRate}%`;
+            } else {
+                $('kpi-mode-rate').innerText = `${servoRate}%`;
+            }
+
+            updateChart();
+        }
+
+        window.clearTransactions = async () => {
+            if(confirm("Hapus seluruh histori transaksi di Database?") && state.db) {
+                await remove(ref(state.db, `${state.currentPath}/transactions`));
+                showToast("Database dibersihkan", "success");
+            }
+        };
+
+        // --- EXPORT TO EXCEL/CSV FEATURE ---
+        window.exportToCSV = () => {
+            if (!state.transactions || state.transactions.length === 0) {
+                showToast("Tidak ada data transaksi untuk diekspor!", "error");
+                return;
+            }
+
+            let csvContent = "Object ID,Timestamp,Waktu,Kelas AI,Confidence (%),Mode Pemilahan,Destinasi,Hasil QC\n";
+            
+            state.transactions.forEach(tx => {
+                const row = [
+                    tx.id,
+                    tx.timestamp,
+                    tx.time_str,
+                    tx.ai_class,
+                    tx.confidence,
+                    tx.sorting_mode,
+                    tx.destination,
+                    tx.result
+                ].join(",");
+                csvContent += row + "\n";
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            
+            const dateStr = new Date().toISOString().slice(0,10);
+            link.setAttribute("href", url);
+            link.setAttribute("download", `Sorting_Report_${dateStr}.csv`);
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showToast("File Excel/CSV berhasil diunduh!", "success");
+        };
+
+        // --- CHART CONFIG ---
+        function initChart() {
+            const ctx = $('distributionChart').getContext('2d');
+            Chart.defaults.font.family = 'Inter';
+            Chart.defaults.color = '#64748b';
+
+            state.chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Yellow (Cat A)', 'Black (Cat B)', 'Red (Reject)'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: ['#eab308', '#334155', '#ef4444'],
+                        borderRadius: 6,
+                        borderSkipped: false,
+                        barThickness: 30
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#e2e8f0' } },
+                        x: { grid: { display: false } }
+                    },
+                    animation: { duration: 500 }
+                }
+            });
+            updateChartConfig();
+        }
+
+        function updateChartConfig() {
+            if(!state.chart) return;
+            const isDark = document.body.classList.contains('dark');
+            state.chart.options.scales.y.grid.color = isDark ? '#334155' : '#e2e8f0';
+            state.chart.data.datasets[0].backgroundColor[1] = isDark ? '#94a3b8' : '#334155';
+            state.chart.update();
+        }
+
+        function updateChart() {
+            if (!state.chart) return;
+            state.chart.data.datasets[0].data = [state.stats.dist.yellow, state.stats.dist.black, state.stats.dist.red];
+            state.chart.update();
+        }
+
+        window.onload = () => {
+            if(localStorage.getItem('iot_dark') === 'true') document.body.classList.add('dark');
+            
+            const savedFb = JSON.parse(localStorage.getItem('fb_cfg') || '{}');
+            if(savedFb.key) {
+                $('fb-key').value = savedFb.key;
+                $('fb-url').value = savedFb.url;
+            }
+            const savedTMUrl = localStorage.getItem('tm_model_url');
+            if(savedTMUrl) $('tm-url-input').value = savedTMUrl;
+            
+            initChart();
+        };
+    </script>
+</body>
+</html>
